@@ -24,6 +24,7 @@ BEGIN
 				[Opportunity Account Name] ,
 				[Opportunity Account Contact Name],
 				[Opportunity Created Date] ,
+				[Proposal_Sent]
 				[Opportunity Last Modified Date] ,
 				[Opportunity Close Date] ,
 				[Opportunity Type] ,
@@ -54,6 +55,7 @@ BEGIN
 		A.Name [Opportunity Account Name],
 		(SELECT TOP 1 C.Name FROM Salesforce.Contact C WHERE C.AccountId = A.Id) [Opportunity Contact Name],
 		O.CreatedDate [Opportunity Created Date],
+		O.[Proposal_Sent__c],
 		O.LastModifiedDate [Opportunity Last Modified Date],
 		O.CloseDate [Opportunity Close Date],
 		O.Type [Opportunity Type],
