@@ -1,0 +1,207 @@
+USE [Xcenda_DW]
+GO
+/****** Object:  StoredProcedure [dbo].[USP_02_H_Build_Fact_Opportunity]    Script Date: 5/21/2019 4:53:17 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROCEDURE [dbo].[USP_02_H_Build_Fact_Opportunity]
+AS
+BEGIN
+	TRUNCATE TABLE FactOpportunity;
+
+	INSERT dbo.FactOpportunity
+			( EmployeeKey ,
+				DateKey ,
+				OpportunityId ,
+				[Opportunity Line Item Id] ,
+				[Opportunity Name] ,
+				[Opportunity Global Proposal] ,
+				[Opportunity Sales Lead],
+				[Opportunity Lead Proposal Writer],
+				[Opportunity Line Item Name] ,
+				[Opportunity AccountId],
+				[Opportunity Account Name] ,
+				[Opportunity Account Contact Name],
+				[Opportunity Created Date] ,
+				[Opportunity Last Modified Date] ,
+				[Opportunity Close Date] ,
+				[Opportunity Type] ,
+				[Opportunity Status] ,
+				[Opportunity Stage],
+				[Opportunity Probability],
+				[Opportunity Business Unit] ,
+				[Opportunity Service Line] ,
+				[Opportunity Line Item Business Unit] ,
+				[Opportunity Line Item Work Type] ,
+				[Opportunity Line Item Quantity] ,
+				[Opportunity Total Quantity] ,
+				[Opportunity Line Item Total Price] ,
+				[Opportunity Unit Price] ,
+				[Opportunity Amount]
+			)
+	SELECT 
+		ISNULL(REPLACE(E.EmployeeKey, '@herescon.com', '@xcenda.com'), CAST((SELECT EmployeeKey FROM dbo.DimEmployee WHERE [Current]=1 AND [Employee Code] = '******') AS INT)) [EmployeeKey],
+		D.DateKey,
+		O.Id [OpportunityId],
+		NULL [Opportunity Line Item Id],
+		O.Name [Opportunity Name],
+		O.[Global_Project__c] ,
+		SalesLead.Name,
+		PropWriter.Name,
+		'' [Opportunity Line Item Name],
+		A.Id [Opportunity AccountId],
+		A.Name [Opportunity Account Name],
+		(SELECT TOP 1 C.Name FROM Salesforce.Contact C WHERE C.AccountId = A.Id) [Opportunity Contact Name],
+		O.CreatedDate [Opportunity Created Date],
+		O.LastModifiedDate [Opportunity Last Modified Date],
+		O.CloseDate [Opportunity Close Date],
+		O.Type [Opportunity Type],
+		CASE 
+			WHEN O.StageName NOT LIKE 'Closed%' THEN 'Open'
+			WHEN O.StageName = 'Closed Won' THEN 'Won'
+			WHEN O.StageName LIKE 'Closed%' AND O.StageName != 'Closed Won' THEN 'Lost'
+			ELSE 'Other Status'
+		END [Opportunity Status],
+		O.StageName,
+		O.Probability [Opportunity Probability],
+		O.XC_Sales_Lead_BU__c [Opportunity Business Unit],
+		O.XC_Sales_Lead_Deptartment__c [Opportunity Service Line],
+		O.Amount [Opportunity Line Item Business Unit],
+		--OL.Xcenda_Work_Types__c [Opportunity Line Item Work Type],
+		ISNULL((SELECT TOP 1 Xcenda_Work_Types__c FROM Salesforce.OpportunityLineItem OL WHERE O.Id = OL.OpportunityId), O.XC_Sales_Lead_Deptartment__c)  [Opportunity Line Item Work Type],
+		0 [Opportunity Line Item Quantity],
+		O.TotalOpportunityQuantity [Opportunity Total Quantity],
+		O.Amount [Opportunity Line Item Total Price],
+		O.Amount [Opportunity Unit Price],
+		O.Amount [Opportunity Amount]
+	FROM Salesforce.Opportunity O
+	--JOIN Salesforce.OpportunityLineItem OL
+	--  ON OL.OpportunityId = O.Id
+	JOIN Salesforce.Account A
+	    ON O.AccountId = A.Id
+	JOIN Salesforce.[User] ModifiedBy
+		ON O.LastModifiedById = ModifiedBy.Id
+	LEFT JOIN Salesforce.Contact [SalesLead]
+	    ON O.Xcenda_SalesLead__c = SalesLead.Id
+	LEFT JOIN Salesforce.Contact [PropWriter]
+	    ON O.Proposal_Writer__c = PropWriter.Id
+	LEFT JOIN dbo.DimEmployee E
+		ON E.[Employee Email] = REPLACE(ModifiedBy.Email, '@herescon.com', '@xcenda.com')
+		AND E.[Current] = 1
+	JOIN dbo.DimDate D
+		ON D.Date = CAST(O.CreatedDate AS DATE)
+	WHERE --CAST(O.ABSG_Partners__c AS VARCHAR) = 'Xcenda'
+		O.RecordTypeId = '0125000000052ZMAAY'
+	  AND O.IsDeleted = 'False'
+	ORDER BY O.CreatedDate;
+	--/*
+	UPDATE dbo.FactOpportunity
+	SET [Opportunity Line Item Work Type] = SFWT.[BSTAnalytics WT]
+	FROM dbo.FactOpportunity O
+	JOIN Support.SalesForceWorktypeLookup SFWT
+	  ON O.[Opportunity Line Item Work Type] = SFWT.[SalesForce WT];
+	--*/
+	/*
+		Update FactOpportunity with WorktypeKey
+	*/
+	UPDATE dbo.FactOpportunity
+	SET WorktypeKey = W.WorktypeKey
+	FROM dbo.FactOpportunity O
+	JOIN dbo.DimWorktypes W
+	  ON W.[Worktype Worktype Name] = O.[Opportunity Line Item Work Type];
+
+	UPDATE dbo.FactOpportunity
+	SET PhaseServiceLineKey = S.PhaseServiceLineKey
+	FROM dbo.FactOpportunity O
+	JOIN dbo.DimPhaseServiceLines S
+	  ON S.[Phase ServiceLine Code] = dbo.fGetServiceLineCode(O.[Opportunity Line Item Work Type])
+	 AND S.[Phase ServiceLine BusinessUnit Code] = dbo.fGetBusinessUnitCode(O.[Opportunity Line Item Work Type])
+
+	/*
+		UPDATE with POD Client ID's
+	*/
+	/* BAYER */
+	UPDATE dbo.FactOpportunity
+	SET [Opportunity Client Code] = 'BAY01',
+	[Opportunity Account Name] = 'Bayer'
+	WHERE [Opportunity Account Name] = 'Bayer HealthCare Pharmaceuticals';
+
+	UPDATE dbo.FactOpportunity
+	SET [Opportunity Client Code] = 'BAY02',
+	[Opportunity Account Name] = 'Bayer Vital GmbH'
+	WHERE [Opportunity Account Name] = 'Bayer Vital GmbH';
+
+	UPDATE dbo.FactOpportunity
+	SET [Opportunity Client Code] = 'BAY003',
+	[Opportunity Account Name] = 'Bayer Pharma AG'
+	WHERE [Opportunity Account Name] = 'Bayer Pharma AG';
+
+	UPDATE dbo.FactOpportunity
+	SET [Opportunity Client Code] = 'BAY003',
+	[Opportunity Account Name] = 'Bayer Pharma AG'
+	WHERE [Opportunity Account Name] = 'Bayer Schering Pharma AG';
+
+	UPDATE dbo.FactOpportunity
+	SET [Opportunity Client Code] = 'BAY003',
+	[Opportunity Account Name] = 'Bayer Pharma AG'
+	WHERE [Opportunity Account Name] = 'Bayer HealthCare AG';
+
+	UPDATE dbo.FactOpportunity
+	SET [Opportunity Client Code] = 'ITD001', 
+	 [Opportunity Account Name] = 'Intendis Inc'
+	WHERE [Opportunity Account Name] = 'Intendis, Inc';
+
+	/* BIPI Boehringer Ingelheim */
+	UPDATE dbo.FactOpportunity
+	SET [Opportunity Client Code] = 'BI001', 
+	 [Opportunity Account Name] = 'Boehringer Ingelheim'
+	WHERE [Opportunity Account Name] = 'Boehringer Ingelheim';
+
+	UPDATE dbo.FactOpportunity
+	SET [Opportunity Client Code] = 'BI002', 
+	 [Opportunity Account Name] = 'Boehringer Ingelheim Pharma GmbH'
+	WHERE [Opportunity Account Name] LIKE 'Boehringer Ingelheim Pharma GmbH%';
+
+	/* BMS Bristol-Myers Squibb */
+	UPDATE dbo.FactOpportunity
+	SET [Opportunity Client Code] = 'BMS001', 
+	 [Opportunity Account Name] = 'Bristol-Myers Squibb'
+	WHERE [Opportunity Account Name] LIKE 'Bristol Myers Squibb Company%';
+
+	PRINT 'START Insert new records into the client name lookup table'
+	INSERT Support.SalesforceClientNameLookup
+        ( ClientKey ,
+          [Client Name] ,
+          [Opportunity Client Code] ,
+          [Opportunity Account Name],
+		  [Created Date]
+        )
+		SELECT DISTINCT P.Code [ClientKey],
+			P.Name [Client Name],
+			P.Code [Opportunity Client Code],
+			O.[Opportunity Account Name],
+			GETDATE()
+		FROM dbo.FactOpportunity O,
+			Staging.Client P
+		WHERE P.TypeCode != 'CONSOL'
+		--AND O.[Opportunity Client Code] IS NULL
+		AND P.Code NOT IN (SELECT ClientKey FROM Support.SalesforceClientNameLookup)
+		AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(O.[Opportunity Account Name],'Pharmaceuticals',''),'Pharma', ''),' ', ''),',',''),'Inc',''), '.',''),'-','') = 
+				REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(P.Name,'Pharmaceuticals',''),'Pharma',''),' ', ''),',',''),'Inc',''), '.',''),'-','')
+		ORDER BY P.Name;
+	PRINT 'FINISH Insert new records into the client name lookup table'
+
+	PRINT 'STARTING Updating FactOpportunity Account Names and Client Codes using Support.SalesforceClientNameLookup'
+
+	UPDATE dbo.FactOpportunity
+	SET [Opportunity Client Code] = L.ClientKey,
+	 [Opportunity Account Name] = ISNULL(L.[Client Name], O.[Opportunity Account Name])
+	FROM dbo.FactOpportunity O
+	LEFT JOIN Support.SalesforceClientNameLookup L
+	  ON L.[Opportunity Account Name] = O.[Opportunity Account Name]
+	WHERE O.[Opportunity Client Code] IS null;
+
+	PRINT 'COMPLETED Updating FactOpportunity Account Names and Client Codes using Support.SalesforceClientNameLookup'
+
+END
