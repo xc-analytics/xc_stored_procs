@@ -1,6 +1,6 @@
 USE [Xcenda_DW]
 GO
-/****** Object:  StoredProcedure [dbo].[USP_02_A_Build_Dims_And_Facts]    Script Date: 7/9/2019 4:10:22 PM ******/
+/****** Object:  StoredProcedure [dbo].[USP_02_A_Build_Dims_And_Facts]    Script Date: 7/9/2019 4:21:31 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -89,6 +89,22 @@ BEGIN
 	UPDATE Staging.Employee
 	SET Name = 'Erica Blayde Woods (1927)'
 	WHERE Name = 'Erica (Blayde) Woods (1927)'
+
+		--Susan (Fakterowitz) Chester (1810)
+	UPDATE Staging.Employee
+	SET Name = 'Susan Fakterowitz Chester (1810)'
+	WHERE Name = 'Susan (Fakterowitz) Chester (1810)'
+
+		--Liset (Ana) Pendleton (2054)
+	UPDATE Staging.Employee
+	SET Name = 'Liset Ana Pendleton (2054)'
+	WHERE Name = 'Liset (Ana) Pendleton (2054)'
+
+		--Adrienne (Rooney) Sirott (1649)
+	UPDATE Staging.Employee
+	SET Name = 'Adrienne Rooney Sirott (1649)'
+	WHERE Name = 'Adrienne (Rooney) Sirott (1649)'
+
 	/* ******************************************************************** */
 
 	INSERT dbo.DimEmployee
