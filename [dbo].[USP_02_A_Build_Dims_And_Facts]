@@ -1,0 +1,1320 @@
+USE [Xcenda_DW]
+GO
+/****** Object:  StoredProcedure [dbo].[USP_02_A_Build_Dims_And_Facts]    Script Date: 7/9/2019 4:10:22 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+ALTER PROC [dbo].[USP_02_A_Build_Dims_And_Facts]
+AS
+BEGIN
+	ALTER TABLE DimEmployee NOCHECK CONSTRAINT ALL;
+	ALTER TABLE DimProject NOCHECK CONSTRAINT ALL;
+	--ALTER TABLE dbo.DimPhase NOCHECK CONSTRAINT ALL;
+	ALTER TABLE dbo.DimProjectPhase NOCHECK CONSTRAINT ALL;
+	ALTER TABLE FactTimeSheet NOCHECK CONSTRAINT ALL;
+	ALTER TABLE FactProjectFinancials NOCHECK CONSTRAINT ALL;
+	
+	TRUNCATE TABLE dbo.FactProjectTransaction;
+	TRUNCATE TABLE dbo.FactTimeSheet;
+	TRUNCATE TABLE dbo.FactChargeability;
+	TRUNCATE TABLE dbo.FactARTransactionSummary;
+
+	--Delete any Employee records that were created during the current period end date
+	DELETE DimEmployee WHERE RowEffectiveDate >= dbo.fPeriodEndDate(DATEADD(DAY, -7, GETDATE()));
+
+	--DELETE DimEmployee;
+	UPDATE dbo.DimEmployee
+	SET [Current] = 0;
+
+	/* ******************************************************************** */
+	/*	UPDATE Employee Name where there is an obvious data entry error     */
+	/* ******************************************************************** */
+	/* ____________________________________________________________________ */
+
+	UPDATE Staging.Employee
+	SET Name = 'Thaiying Young (2242)'
+	WHERE Name = 'Thaiying (Thai) Young (2242)'
+
+	UPDATE Staging.Employee
+	SET Name = 'Ashton Shahram Moradi'
+	WHERE Name = 'Ashton (Shahram) Moradi'
+
+	UPDATE Staging.Employee
+	SET [Name] = 'Erin Henlyshyn Zagadailov (1333)'
+	WHERE [Name] = 'Erin Henlyshyn Zagadailov 1333)';
+
+	  --Tara (Radecki) Gupton (1414)
+	UPDATE Staging.Employee
+	SET [Name] = 'Tara Radecki Gupton (1414)'
+	WHERE [Name] = 'Tara (Radecki) Gupton (1414)';
+
+	  --Tom (Sizhu) Liu (1694)
+	UPDATE Staging.Employee
+	SET Name = 'Tom Sizhu Liu (1694)'
+	WHERE Name = 'Tom (Sizhu) Liu (1694)';
+
+	   --John- Peter 
+	UPDATE Staging.Employee
+	SET Name = 'John- Peter Gero (1859)'
+	WHERE Name = 'John- Peter (JP) Gero (1859)';
+
+		--Kaye (Doris) Rife (1769)
+	UPDATE Staging.Employee
+	SET Name = 'Kaye Doris Rife (1769)'
+	WHERE Name = 'Kaye (Doris) Rife (1769)'
+
+		--Chinedu (Patrick) Ndukwe (1707) 
+	UPDATE Staging.Employee
+	SET Name = 'Chinedu Patrick Ndukwe (1707)'
+	WHERE Name = 'Chinedu (Patrick) Ndukwe (1707) ';
+
+		--Zedeka	 Poindexter (1904)
+	UPDATE Staging.Employee
+	SET Name = 'Zedeka Poindexter (1904)'
+	WHERE Name = 'Zedeka	 Poindexter (1904)'
+
+		--Jonny (Jonathan) Clark (1963)
+	UPDATE Staging.Employee
+	SET Name = 'Jonny Clark (1963)'
+	WHERE Name = 'Jonny (Jonathan) Clark (1963)'
+	/* ******************************************************************** */
+
+	INSERT dbo.DimEmployee
+	        ( [Employee Code] ,
+	          [Home Company Code] ,
+	          [Home Company Name] ,
+	          [Employee Name] ,
+	          [Employee Login] ,
+	          [Employee Email] ,
+	          [Employee Title Code] ,
+	          [Employee Title] ,
+			  [Employee Classification Code],
+			  [Employee Classification Name],
+	          [Employee Manager Login] ,
+	          [Employee Manager Name] ,
+			  [Employee Labor Type Code],
+			  [Employee Labor Type],
+			  [Employee Organization Code],
+			  [Employee Organization Name],
+	          [Business Unit Code] ,
+			  [Employee Business Unit Code],
+	          [Business Unit] ,
+			  [Employee Business Unit] ,
+	          [Service Line Code] ,
+			  [Employee Service Line Code] ,
+	          [Service Line] ,
+			  [Employee Service Line] ,
+			  [Employee Team Code] ,
+			  [Employee Team],
+			  [Employee Team Display],
+	          [Employee Hire Date] ,
+	          [Employee Termination Date] ,
+	          [Employee Status Code] ,
+	          [Employee Status Name] ,
+			  [Employee Employment Status] , 
+	          [Employee Full Or Part Time] ,
+	          [Employee Standard Hours Per Day] ,
+	          [Employee Standard Bill Rate] ,
+	          [Employee Worktype Name] ,
+	          [Employee Chargeability Target] ,
+	          [Employee Office Location] ,
+	          RowCreateDate ,
+	          RowEffectiveDate ,
+	          RowExpirationDate ,
+	          [Current]
+	        )
+	SELECT DISTINCT SE.Code [Employee Code],
+		SE.HomeCompanyCode [Home Company Code],
+		SE.HomeCompanyName [Home Company Name],
+		--SE.Name [Employee Name],
+		CASE -- Strip Parenthesis out of name
+			WHEN CHARINDEX('(',SE.Name)>0 THEN SUBSTRING(SE.Name,1,CHARINDEX('(',SE.Name)-1)
+		ELSE SE.Name
+		END [Employee Name],
+		'' [Employee Login],
+		'' [Employee Email],
+		'' [Employee Title Code],
+		SE.Title [Employee Title],
+		SE.ClassificationCode [Employee Classification Code],
+		SE.ClassificationName [Employee Classification Name],
+		'' [Employee Manager Login],
+		'' [Employee Manager Name],
+		O.OfficeLocationCode [Employee Labor Type Code],
+		O.OfficeLocationName [Employee Labor Type],
+		SE.HomeOrganizationCode [Employee Organization Code],
+		SE.HomeOrganizationName [Employee Organization Name],
+		SE.AlternateOrganizationCode1 [Business Unit Code],
+		SE.AlternateOrganizationCode1 [Employee Business Unit Code],
+		SE.AlternateOrganizationName1 [Business Unit],
+		SE.AlternateOrganizationName1 [Employee Business Unit],
+		'' [Service Line Code],
+		'' [Employee Service Line Code],
+		'' [Service Line],
+		'' [Employee Service Line],
+		SE.AlternateOrganizationCode2 [Employee Team Code],
+		SE.AlternateOrganizationName2 [Employee Team],
+		dbo.fStripByLastUnderscore(SE.AlternateOrganizationName2) [Employee Team Display],
+		SE.ActivationDate [Employee Hire Date],
+		SE.TerminationDate [Employee Termination Date],
+		SE.Status [Employee Status Code],
+		SE.StatusName [Employee Status Name],
+		CASE 
+			WHEN SE.TerminationDate IS NULL AND SE.Status = 'D' THEN 'Employed'
+			WHEN SE.TerminationDate IS NOT NULL AND SE.Status = 'D' THEN 'Terminated'
+			ELSE 'NA'
+		END [Employee Employment Status] , 
+		SE.FullOrPartTimeName [Employee Full Or Part Time],
+		SE.StandardHoursPerDay [Employee Standard Hours Per Day],
+		NULL [Employee Standard Bill Rate],
+		SE.AlternateOrganizationName2 [Employee Worktype Name],
+		SE.GoalPct,
+		SE.OfficeLocationName,
+		GETDATE() [RowCreateDate],
+		dbo.fPeriodEndDate(DATEADD(DAY, -7, GETDATE())) [RowEffectiveDate],
+		dbo.fPeriodEndDate(GETDATE()) [RowExpirationDate],
+		1
+	FROM Staging.Employee SE
+	LEFT JOIN Staging.Organization O
+	  ON SE.AlternateOrganizationName2 = O.Name
+	 AND O.OfficeLocationCode IN ('DL', 'FT', 'Contract', 'FTOTHER', 'IND')
+
+	/*
+		UPDATE Business Unit Code and Business Unit to say Contract instead of the varients
+	*/
+
+	UPDATE dbo.DimEmployee
+	SET [Business Unit Code] = 'CONTRACT',
+		[Business Unit] = 'Contract'
+	WHERE [Business Unit Code] = 'CONTRACT' 
+	   OR [Business Unit Code] = 'ICONTRAC'
+
+	UPDATE dbo.DimEmployee
+	SET [Service Line Code] = 'CONTRACTOR',
+		[Service Line] = 'Contractor'
+	WHERE [Service Line Code] = ''
+	 AND ([Business Unit Code] = 'CONTRACT' 
+	   OR [Business Unit Code] = 'ICONTRAC')
+
+	/*
+		UPDATE BU to say Xcenda Switzerland instead of Company08
+	*/
+	UPDATE dbo.DimEmployee
+	SET [Business Unit] = 'Xcenda Switzerland',
+		[Employee Business Unit] = 'Xcenda Switzerland'
+	WHERE [Employee Business Unit] = 'Company08'
+
+	UPDATE dbo.DimEmployee
+	SET [Business Unit] = 'Xcenda GmbH',
+		[Employee Business Unit] = 'Xcenda GmbH'
+	WHERE [Employee Business Unit] = 'XcendaEurope'
+
+	/*	TEMPORARY
+		DimEmployee Update from Bill Rate import
+	*/
+	--UPDATE DimEmployee
+	--SET [Employee Standard Bill Rate] = BR.STND
+	--FROM DimEmployee DE
+	--JOIN Staging.Import_EmployeeBillRate BR
+	--  ON DE.[Employee Code] = BR.Code
+	--WHERE [Employee Standard Bill Rate] IS NULL
+	--  AND [Current] = 1;
+
+	/*	TEMPORARY
+		DimEmployee Updates from RADAR 
+	*/
+	/*	***************************************************************************************************
+		05-25-2018 ABC Migration Fix
+		***************************************************************************************************
+	*/
+	UPDATE DimEmployee
+	SET [Employee Manager Name] = XUA.Supervisor,
+		[Employee Manager Login] = XUA.SupervisorLogin,
+		[Employee Login] = XU.Login,
+		[Employee Email] = XUA.Email,
+		[Service Line] = XU.Serv_line_name,
+		[Employee Service Line] = XU.Serv_line_name,
+		[Service Line Code] = XU.Serv_line_id,
+		[Employee Service Line Code] = XU.Serv_line_id
+	FROM Staging.Xcenda_user XU
+	LEFT JOIN Staging.vXcendaUserWorkdayLogins XUA
+	  ON XU.BstId = XUA.EmplID
+	JOIN DimEmployee DE
+	  ON XU.ID = DE.[Employee Code]
+	WHERE [DE].[Current] = 1;
+
+	/*
+		2018-02-05 : Fix for Service Line Issues
+		Operations, Creative, etc...
+	*/
+	UPDATE dbo.DimEmployee
+	SET [Service Line Code] = SE.AlternateOrganizationCode2,
+		[Employee Service Line Code] = SE.AlternateOrganizationCode2,
+		[Service Line] = dbo.fStripByLastUnderscore(SE.AlternateOrganizationName2),
+		[Employee Service Line] = dbo.fStripByLastUnderscore(SE.AlternateOrganizationName2)
+	FROM Staging.Xcenda_user XU
+	JOIN Staging.vXcendaUserWorkdayLogins XUA
+	  ON XU.BstId = XUA.EmplID
+	JOIN DimEmployee DE
+	  ON XU.ID = DE.[Employee Code]
+	 AND DE.[Current] = 1
+	JOIN Staging.Employee SE
+	  ON SE.Code = DE.[Employee Code]
+	WHERE [DE].[Current] = 1
+	  AND XU.Serv_line_name = ''
+	  AND DE.[Service Line Code] <> DE.[Employee Service Line Code]
+	/*	***************************************************************************************************
+		05-25-2018 ABC Migration Fix
+		***************************************************************************************************
+	*/	
+	/*
+		DimEmployee Updates for Xcenda GmbH
+	*/
+	UPDATE dbo.DimEmployee
+	SET [Service Line] = 'Xcenda GmbH'
+	WHERE [Home Company Code] = '02'
+	  AND [Service Line] = ''
+	  AND [Current] = 1;
+
+	UPDATE dbo.DimEmployee
+	SET [Service Line Code] = 'XEU'
+	WHERE [Home Company Code] = '02'
+	  AND [Service Line Code] = ''
+	  AND [Current] = 1;
+
+	/* ************************************** */
+	/* TEMP EMPLOYEE FIXES SERVICE LINE FIXES */
+	/* ************************************** */
+	/* 2017-08-02 */
+	/* Swiss and UK Employee [Employee Service Line] and [Employee Team] fixes*/
+	--UPDATE dbo.DimEmployee
+	--SET [Business Unit Code] = 'SC',
+	--	[Employee Business Unit Code] = 'SC',
+	--	[Business Unit] = 'SC_SC_SC_Scientific Consulting_',
+	--	[Employee Business Unit] = 'SC_SC_SC_Scientific Consulting_',
+	--	[Employee Service Line Code] = 'SCS',
+	--	[Employee Service Line] = 'Scientific Client Strategies',
+	--	[Employee Team Code] = 'SCS',
+	--	[Employee Team] = 'SC_SCS_SCS_Scientific Client Strate',
+	--	[Employee Team Display] = 'Scientific Client Strate',
+	--	[Employee Labor Type Code] = 'DL',
+	--	[Employee Labor Type] = 'Direct Labor'
+	--WHERE dbo.DimEmployee.[Home Company Code] > 2
+	--  AND dbo.DimEmployee.[Current] = 1
+	--  AND dbo.DimEmployee.[Service Line Code] <> dbo.DimEmployee.[Employee Service Line Code]
+
+	/*
+		Update Past Employee Data Links
+	*/
+	UPDATE dbo.DimEmployee
+	SET [Employee Login] = Past.[Employee Login],
+		[Employee Email] = Past.[Employee Email],
+		[Employee Manager Login] = Past.[Employee Manager Login],
+		[Employee Manager Name] = Past.[Employee Manager Name],
+		[Service Line Code] = Past.[Service Line Code],
+		[Service Line] = Past.[Service Line]
+	FROM dbo.DimEmployee E
+	JOIN dbo.vDimEmployee_PastEmployeeData Past
+	  ON E.[Employee Code] = Past.[Employee Code]
+	WHERE E.[Current] = 1
+	  AND E.[Employee Code] NOT IN ('******','100054','1001','1002','1003','1004','1005','1006','1007','1008','1009',
+									'ABCAUDIT','ABCEMPLOY','AQUENT','CASICKTIM','CC','ELSEVIER','FEDEX','FEDEX0005',
+									'FRM','FRM1','FRM2','FRM3','FRM4','FRM5','FRM6','FRM7','FRM8','FRM9','FTL','GLOBAL',
+									'GLOBALONC','HOTELSOUR','LAHSOPS','MCNMISC','OPSADJUST','OPSADM','OPSALYST','OPSAMGR',
+									'OPSDEV','OPSDIR','OPSMGR','OPSMMI','OPSNUMERI','OPSPCC','OPSPROFIT','OPSPRS','OPSPSS',
+									'OPSRCR','OPSRCT','OPSRSS','OPSSCR','OPSSCT','OPSSMGR','OPSSRDIR','OPSTC','OPSVP',
+									'PAYERPULS','PCARD','PET1','PROJECT','PROREP','PTO','PTOCO','QWEST','QWEST001','RCT',
+									'SCT','SFL','SPONSORSH','SYNDTRNG','TEMP','TEST','VERIZON','XCENDAEU','ZEMP')
+	  AND ((E.[Employee Login] = '' AND Past.[Employee Login] != '')
+   OR (E.[Employee Email] = '' AND Past.[Employee Email] != '')
+   OR (E.[Employee Manager Name] = '' AND Past.[Employee Manager Name] != '')
+   OR (E.[Service Line Code] = '' AND Past.[Service Line Code] != '')
+   OR (E.[Service Line] = '' AND Past.[Service Line] != ''));
+
+ --  /*   ********* CHARGEABILITY TARGETS **********
+	--	Update Past Employee CHARGEABILITY TARGETS
+	--	09-14-2016 - JDM
+	--	********* CHARGEABILITY TARGETS **********
+ --  */	
+	--UPDATE dbo.DimEmployee
+	--	SET [Employee Chargeability Target] = Past.[Employee Chargeability Target]
+	--FROM dbo.DimEmployee E
+	--JOIN dbo.vDimEmployee_PastEmployeeChargeTarget Past
+	--  ON E.[Employee Code] = Past.[Employee Code]
+	--WHERE E.[Current] = 1
+	--  AND E.[Employee Code] NOT IN ('******','100054','1001','1002','1003','1004','1005','1006','1007','1008','1009',
+	--								'ABCAUDIT','ABCEMPLOY','AQUENT','CASICKTIM','CC','ELSEVIER','FEDEX','FEDEX0005',
+	--								'FRM','FRM1','FRM2','FRM3','FRM4','FRM5','FRM6','FRM7','FRM8','FRM9','FTL','GLOBAL',
+	--								'GLOBALONC','HOTELSOUR','LAHSOPS','MCNMISC','OPSADJUST','OPSADM','OPSALYST','OPSAMGR',
+	--								'OPSDEV','OPSDIR','OPSMGR','OPSMMI','OPSNUMERI','OPSPCC','OPSPROFIT','OPSPRS','OPSPSS',
+	--								'OPSRCR','OPSRCT','OPSRSS','OPSSCR','OPSSCT','OPSSMGR','OPSSRDIR','OPSTC','OPSVP',
+	--								'PAYERPULS','PCARD','PET1','PROJECT','PROREP','PTO','PTOCO','QWEST','QWEST001','RCT',
+	--								'SCT','SFL','SPONSORSH','SYNDTRNG','TEMP','TEST','VERIZON','XCENDAEU','ZEMP')
+	--  AND (E.[Employee Chargeability Target] = 0 AND Past.[Employee Chargeability Target] > 0)
+	--  --AND E.[Employee Code] = '76452'; --Adjusting Ryan Strug only (for now)
+
+   /* SET Empty Service Line to Not Specified */
+   UPDATE dbo.DimEmployee
+	SET [Service Line] = 'Not Specified',
+	[Employee Service Line Code] = 'Not Specified',
+	[Employee Team] = 'Not Specified',
+	[Employee Team Display] = 'Not Specified'
+   WHERE [Current] = 1
+     AND [Service Line] = '';
+
+   TRUNCATE TABLE dbo.TableRefreshTime;
+   INSERT dbo.TableRefreshTime
+           ( TblName, LastRefreshTime )
+   VALUES  ( N'DimEmployee', -- TblName - nvarchar(255)
+             GETDATE()  -- LastRefreshTime - datetime
+             );
+
+	/*
+		INSERT Any Missing Worktypes from Projects
+		into the WorkType lookup table BEFORE RUNNING
+		Project Dimension Procedures
+	*/
+	INSERT Support.ProjectWorktypeDisplayLookup
+	        ( [Project WorkType Name] ,
+	          [Project Worktype Display]
+	        )
+	SELECT DISTINCT TypeName, TypeName
+	FROM Staging.Project
+	WHERE TypeName NOT IN (SELECT [Project WorkType Name] FROM Support.ProjectWorktypeDisplayLookup)
+
+	/*
+		RUN PROC TO BUILD THE PROJECT DIMENSION
+		NOTE THIS DIMENSION IS DEPRECATED AND NOT MAINTAINED
+	*/
+	EXEC dbo.USP_02_B_Build_Dims_Project;
+
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'USP_02_B_Build_Dims_Project', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+	/*
+		RUN PROC TO BUILD THE ProjectPhase DIMENSION
+	*/
+	EXEC dbo.USP_02_D_Build_Dims_ProjectPhase;
+
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'USP_02_D_Build_Dims_ProjectPhase', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	--/*
+	--	RUN PROC TO BUILD THE DimPhaseWorktypes DIMENSION
+	--	(Based on ProjectPhase dimension, so it must come after)
+	--*/
+	EXEC dbo.USP_Populate_DimPhaseWorkTypes;
+
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Completed USP_Populate_DimPhaseWorkTypes', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	--/*
+	--	RUN PROC TO BUILD THE DimWorktype DIMENSION
+	--	(Based on ProjectPhase dimension, so it must come after)
+	--*/
+	--EXEC dbo.USP_Populate_DimWorkTypes;
+	/* TESTING TESTING TESTING*/
+	EXEC dbo.USP_Populate_DimWorkTypes_Using_PhaseWorktypes
+
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Completed USP_Populate_DimWorkTypes_Using_PhaseWorktypes', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	--/*
+	--	RUN PROC TO BUILD THE DimPhaseServiceLine DIMENSION
+	--	(Based on ProjectPhase dimension, so it must come after)
+	--*/
+	EXEC dbo.USP_Populate_DimPhaseServiceLines;
+
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Completed USP_Populate_DimPhaseServiceLines', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	/*
+		RUN PROC TO BUILD THE SECTION ACCESS TABLE
+	*/
+	EXEC USP_02_E_Build_SECTION_ACCESS_TABLE;
+	
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Completed USP_02_E_Build_SECTION_ACCESS_TABLE', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	/*
+		RUN PROC TO BUILD THE SECTION ACCESS DIRECT REPORTS TABLE
+	*/
+	--EXEC dbo.USP_02_F_Build_SECTION_ACCESS_DR_TABLE;
+	
+	--INSERT dbo.TableRefreshTime
+	--        ( TblName, LastRefreshTime )
+	--VALUES  ( N'Completed USP_02_F_Build_SECTION_ACCESS_DR_TABLE', -- TblName - nvarchar(255)
+	--          GETDATE()  -- LastRefreshTime - datetime
+	--          );
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'SKIPPED USP_02_F_Build_SECTION_ACCESS_DR_TABLE (purposefully)', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+	/* ************* PLAN *******************
+		RUN PROC TO BUILD THE FACTPlanFY2017 TABLE
+	   ************* PLAN *******************
+	*/ 
+	--USP_02_I_Build_FactPlanFY2017
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Begin USP_02_I_Build_FactPlanFY2017', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	EXEC dbo.USP_02_I_Build_FactPlanFY2017;
+	
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Completed USP_02_I_Build_FactPlanFY2017', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+	--USP_02_J_Build_FactPlanFY2018_DEV
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Begin USP_02_J_Build_FactPlanFY2018_DEV', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+	EXEC dbo.USP_02_J_Build_FactPlanFY2018_DEV;
+
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Completed USP_02_J_Build_FactPlanFY2018_DEV', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+	--USP_02_J_Build_FactPlanFY2019
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Begin USP_02_J_Build_FactPlanFY2019', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+	EXEC dbo.USP_02_J_Build_FactPlanFY2019;
+
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Completed USP_02_J_Build_FactPlanFY2019', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	/* ************* PLAN *******************
+		END of BUILD THE FACTPlanFY2017 TABLE
+	   ************* PLAN *******************
+	*/ 
+
+	/* ************* BACKLOG *******************
+		RUN PROC TO BUILD THE FACTBACKLOG TABLE
+	   ************* BACKLOG *******************
+	*/ 
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Begin USP_02_G_Build_Fact_Backlog', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+
+	EXEC dbo.USP_02_G_Build_Fact_Backlog;
+
+	/* JOIN DimPhaseServiceLines to FactBacklog */
+	EXEC dbo.USP_JOIN_PhaseServiceLineKeyToFactBacklog;
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'JOINED FactBacklog to DimPhaseServiceLines', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+	
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Completed USP_02_G_Build_Fact_Backlog', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	/* ************* BACKLOG *******************
+		END of BUILD THE FACTBACKLOG TABLE
+	   ************* BACKLOG *******************
+	*/ 
+
+	/* ************* BACKLOGH (HORIZONTAL) *****
+		RUN PROC TO BUILD THE BACKLOGH (HORIZONTAL) TABLE
+	   ************* BACKLOGH (HORIZONTAL) *******************
+	*/ 
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Begin USP_02_G_Build_Fact_BacklogH', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+
+	EXEC dbo.USP_02_G_Build_Fact_BacklogH;
+
+	/* JOIN DimPhaseServiceLines to FactBacklog */
+	EXEC dbo.USP_JOIN_PhaseServiceLineKeyToFactBacklogH;
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'JOINED FactBacklogH to DimPhaseServiceLines', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+	
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Completed USP_02_G_Build_Fact_BacklogH', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	/* ************* BACKLOGH (HORIZONTAL) *******************
+		END of BUILD THE BACKLOGH (HORIZONTAL) TABLE
+	   ************* BACKLOGH (HORIZONTAL) *******************
+	*/
+
+	/* ************* OPPORTUNITY *******************
+		RUN PROC TO BUILD THE FACT OPPORTUNITY TABLE
+	   ************* OPPORTUNITY *******************
+	*/ 
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Begin USP_02_H_Build_Fact_Opportunity', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	EXEC dbo.USP_02_H_Build_Fact_Opportunity;
+	
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Completed USP_02_H_Build_Fact_Opportunity', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	/* ************* OPPORTUNITY *******************
+		END of BUILD THE FACT OPPORTUNITY TABLE
+	   ************* OPPORTUNITY *******************
+	*/ 
+
+	ALTER TABLE DimEmployee CHECK CONSTRAINT ALL;
+	ALTER TABLE DimProject CHECK CONSTRAINT ALL;
+	--ALTER TABLE DimPhase CHECK CONSTRAINT ALL;
+	ALTER TABLE dbo.DimProjectPhase CHECK CONSTRAINT ALL;
+	ALTER TABLE FactTimeSheet CHECK CONSTRAINT ALL;
+	ALTER TABLE FactProjectTransaction CHECK CONSTRAINT ALL;
+
+	--/*
+	--	Handle FactProjectTransaction
+	--  Truncated above
+	--*/
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Begin FactProjectTransaction INSERT', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+	/* *************************
+		PROJECT TRANSACTIONS
+		FactProjectTransaction
+	   *************************
+	*/
+	INSERT dbo.FactProjectTransaction
+	        ( ProjectPhaseKey,
+			  ProjectKey ,
+	          EmployeeKey ,
+	          DateKey ,
+			  [Project Transaction Client Code],
+	          [Project Transaction Task Code] ,
+	          [Project Transaction Task Name] ,
+	          [Project Transaction Date] ,
+			  [Project Transaction PeriodEndDate],
+	          [Project Transaction EVC Type] ,
+	          [Project Transaction EVC Code] ,
+	          [Project Transaction EVC Name] ,
+	          [Project Transaction Document Type] ,
+			  [Project Transaction Hours Quantity],
+	          [Project Transaction Company Name] ,
+	          [Project Transaction Account Name] ,
+	          [Project Transaction Revenue Type] ,
+	          [Project Transaction Labor Effort] ,
+	          [Project Transaction Expense] ,
+	          [Project Transaction Revenue Adjustment],
+			  [Project Transaction Effort Amount Company Currency],
+			  [Project Transaction Effort Amount Project Currency],
+			  [Project Transaction Company Currency Code],
+			  [Project Transaction Project Currency Code],
+			  [Project Transaction Comment]
+	        )
+	SELECT 
+		PP.ProjectPhaseKey,
+		P.ProjectKey,
+		ISNULL(E.EmployeeKey, (SELECT EmployeeKey FROM dbo.DimEmployee WHERE [Current]=1 AND [Employee Code] = '******')) [EmployeeKey],
+		DT.DateKey,
+		P.[Project Client Code] [Project Transaction Client Code],
+		D.TaskCode [Project Transaction Task Code], 
+		D.TaskName [Project Transaction Task Name],
+		D.TransactionDate [Project Transaction Date],
+		D.PeriodEndDate [Project Transaction PeriodEndDate],
+		D.EVCTypeName [Project Transaction EVC Type],
+		D.EVCCode [Project Transaction EVC Code],
+		D.EVCName [Project Transaction EVC Name],
+		D.InputDocumentTypeName [Project Transaction Document Type],
+		D.QuantityAmt [Project Transaction Hours Quantity],
+		D.SourceCompanyName [Project Transaction Company Name],
+		D.AccountName [Project Transaction Account Name],
+		D.RevenueTypeName [Project Transaction Revenue Type],
+		CASE D.DetailType 
+			WHEN 'R' THEN D.EffortAmtProjectCurrency 
+			WHEN 'M' THEN D.EffortAmtProjectCurrency
+			ELSE 0 
+		END [Project Transaction Labor Effort], 
+		CASE 
+			WHEN D.DetailType = 'E' THEN D.EffortAmtProjectCurrency 
+			ELSE 0 
+		END [Project Transaction Expense],
+		0 [Project Transaction Revenue Adjustment],
+		D.EffortAmtCompanyCurrency [Project Transaction Effort Amount Company Currency],
+		D.EffortAmtProjectCurrency [Project Transaction Effort Amount Project Currency],
+		D.AccountCurrencyCode [Project Transaction Company Currency Code],
+		D.ProjectCurrencyCode [Project Transaction Project Currency Code],
+		D.ProjectDescription
+		--,D.*
+	FROM Staging.ProjectTransactionDetail D
+	JOIN dbo.DimProjectPhase PP
+		ON D.ProjectCode = PP.[Project Code]
+		AND D.PhaseCode = PP.[Project Phase Code]
+	JOIN dbo.DimProject P
+	  ON D.ProjectCode = P.[Project Code]
+	LEFT JOIN dbo.DimEmployee E
+	  ON E.[Employee Code] = D.EVCCode
+	 AND E.[Current] = 1
+	LEFT JOIN dbo.DimDate DT
+	  ON DT.Date = D.PeriodEndDate
+	WHERE D.TransactionDate >= '1-1-2013'
+	ORDER BY D.TransactionDate
+
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'End FactProjectTransaction INSERT', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Begin OLD FactProjectTransaction INSERT', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+	/* Get OLD Project transactions*/
+	INSERT dbo.FactProjectTransaction
+	        ( ProjectPhaseKey,
+			  ProjectKey ,
+	          EmployeeKey ,
+	          DateKey ,
+			  [Project Transaction Client Code] ,
+	          [Project Transaction Task Code] ,
+	          [Project Transaction Task Name] ,
+	          [Project Transaction Date] ,
+			  [Project Transaction PeriodEndDate] ,
+	          [Project Transaction EVC Type] ,
+	          [Project Transaction EVC Code] ,
+	          [Project Transaction EVC Name] ,
+	          [Project Transaction Document Type] ,
+			  [Project Transaction Hours Quantity],
+	          [Project Transaction Company Name] ,
+	          [Project Transaction Account Name] ,
+	          [Project Transaction Revenue Type] ,
+	          [Project Transaction Labor Effort] ,
+	          [Project Transaction Expense] ,
+	          [Project Transaction Revenue Adjustment],
+			  [Project Transaction Effort Amount Company Currency],
+			  [Project Transaction Effort Amount Project Currency],
+			  [Project Transaction Company Currency Code],
+			  [Project Transaction Project Currency Code],
+			  [Project Transaction Comment]
+	        )
+		SELECT 
+			PP.ProjectPhaseKey,
+			P.ProjectKey,
+			ISNULL(E.EmployeeKey, (SELECT EmployeeKey FROM dbo.DimEmployee WHERE [Current]=1 AND [Employee Code] = '******')) [EmployeeKey],
+			DT.DateKey,
+			P.[Project Client Code] [Project Transaction Client Code],
+			--CONVERT (char(8),D.TransactionDate,112) [DateKey],
+			--D.ProjectCode [Project Transaction Project Code], 
+			--D.PhaseCode [Project Transaction Phase Code], 
+			D.TaskCode [Project Transaction Task Code], 
+			D.TaskName [Project Transaction Task Name],
+			D.TransactionDate [Project Transaction Date],
+			D.PeriodEndDate [Project Transaction PeriodEndDate],
+			D.EVCTypeName [Project Transaction EVC Type],
+			D.EVCCode [Project Transaction EVC Code],
+			D.EVCName [Project Transaction EVC Name],
+			D.InputDocumentTypeName [Project Transaction Document Type],
+			D.QuantityAmt [Project Transaction Hours Quantity],
+			D.SourceCompanyName [Project Transaction Company Name],
+			D.AccountName [Project Transaction Account Name],
+			D.RevenueTypeName [Project Transaction Revenue Type],
+			CASE D.RevenueTypeCode 
+				WHEN 01 THEN D.EffortAmtProjectCurrency 
+				ELSE 0 
+			END [Project Transaction Labor Effort], 
+			CASE 
+				WHEN D.RevenueTypeCode != 01 THEN D.EffortAmtProjectCurrency 
+				ELSE 0 
+			END [Project Transaction Expense],
+			0 [Project Transaction Revenue Adjustment],
+			D.EffortAmtCompanyCurrency [Project Transaction Effort Amount Company Currency],
+			D.EffortAmtProjectCurrency [Project Transaction Effort Amount Project Currency],
+			D.AccountCurrencyCode [Project Transaction Company Currency Code],
+			D.ProjectCurrencyCode [Project Transaction Project Currency Code],
+			D.ProjectDescription
+			--,D.*
+			--, D.ProjectCurrencyCode
+		FROM Staging.ProjectTransactionDetail D
+		JOIN dbo.DimProjectPhase PP
+		  ON D.ProjectCode = PP.[Project Code]
+		 AND D.PhaseCode = PP.[Project Phase Code]
+		JOIN dbo.DimProject P
+		  ON D.ProjectCode = P.[Project Code]
+		  AND P.[Project Status Code] = 'A' --Getting only *active* projects
+		  AND P.[Project Chargeable] = 'Chargeable'
+		LEFT JOIN dbo.DimEmployee E
+		  ON E.[Employee Code] = D.EVCCode
+		 AND E.[Current] = 1
+		LEFT JOIN dbo.DimDate DT
+		  ON DT.Date = D.PeriodEndDate
+		WHERE D.TransactionDate < '1-1-2013'
+		  --AND D.ProjectCode = 'ZPTO1501'
+		ORDER BY D.TransactionDate
+
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'End OLD FactProjectTransaction INSERT', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	/*	*************************
+		PROJECT TRANSACTIONS REVENUE ADJUSTMENTS
+		FactProjectTransaction REV ADJUSTMENTS
+		*************************
+	*/
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Begin FactProjectTransaction Rev Adjustments INSERT', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+	INSERT dbo.FactProjectTransaction
+	        ( ProjectPhasekey,
+			  ProjectKey ,
+	          [EmployeeKey],
+	          DateKey ,
+			  [Project Transaction Client Code] ,
+	          [Project Transaction Task Code] ,
+	          [Project Transaction Task Name] ,
+	          [Project Transaction Date] ,
+			  [Project Transaction PeriodEndDate] ,
+	          [Project Transaction EVC Type] ,
+	          [Project Transaction EVC Code] ,
+	          [Project Transaction EVC Name] ,
+	          [Project Transaction Document Type] ,
+			  [Project Transaction Hours Quantity],
+	          [Project Transaction Company Name] ,
+	          [Project Transaction Account Name] ,
+	          [Project Transaction Revenue Type] ,
+	          [Project Transaction Labor Effort] ,
+	          [Project Transaction Expense] ,
+	          [Project Transaction Revenue Adjustment],
+			  [Project Transaction Project Currency Code],
+			  [Project Transaction Comment]
+	        )
+	SELECT 
+		PP.ProjectPhaseKey,
+		P.ProjectKey,
+		(SELECT EmployeeKey FROM dbo.DimEmployee WHERE [Current]=1 AND [Employee Code] = '******') [EmployeeKey],
+		DT.DateKey,
+		--D.ProjectCode [Project Transaction Project Code], 
+		--D.PhaseCode [Project Transaction Phase Code],
+		P.[Project Client Code] [Project Transaction Client Code], 
+		DD.TaskCode [Project Transaction Task Code], 
+		DD.TaskName [Project Transaction Task Name],
+		D.DocumentDate [Project Transaction Date],
+		DD.PeriodEndDatePosted [Project Transaction PeriodEndDate],
+		'Revenue Adjustment' [Project Transaction EVC Type],
+		D.ParentBatchSkey [Project Transaction EVC Code],
+		'Revenue Adjustment' [Project Transaction EVC Name],
+		'Revenue Adjustment' [Project Transaction Document Type],
+		0 [Project Transaction Hours Quantity],
+		DD.CompanyName [Project Transaction Company Name],
+		'Revenue Adjustment' [Project Transaction Account Name],
+		DD.RevenueTypeName [Project Transaction Revenue Type],
+		0 [Project Transaction Labor Effort], 
+		0 [Project Transaction Expense],
+		DD.AdjustmentAmtProjectCurrency [Project Transaction Revenue Adjustment],
+		D.ProjectCurrencyCode [Project Transaction Project Currency Code],
+		NULL -- This would be [Project Transaction Comment], not found in Rev Adj tables
+		--,D.*
+	FROM Staging.RevenueAdjustmentDocumentDetail DD
+	JOIN Staging.RevenueAdjustmentDocument D
+	  ON D.ParentBatchSkey = DD.ParentBatchSkey
+	 AND D.DocumentSkey = DD.ParentDocumentSkey
+	JOIN dbo.DimProjectPhase PP
+	  ON DD.ProjectCode = PP.[Project Code]
+	 AND DD.PhaseCode = PP.[Project Phase Code]
+	JOIN dbo.DimProject P
+	  ON DD.ProjectCode = P.[Project Code]
+	LEFT JOIN dbo.DimDate DT
+	  ON DT.Date = DD.PeriodEndDatePosted
+	WHERE Dd.PeriodEndDatePosted >= '1-1-2013'
+	ORDER BY D.DocumentDate;
+
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'End FactProjectTransaction Rev Adjustments INSERT', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	/* CONSOLIDATE REVENUE TYPES */
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'CONSOLIDATE REVENUE TYPES', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	UPDATE dbo.FactProjectTransaction
+	SET [Project Transaction Revenue Type] = 'Labor Revenue'
+	WHERE [Project Transaction Revenue Type] = 'Subconsultant Revenue (in)';
+
+	UPDATE dbo.FactProjectTransaction
+	SET [Project Transaction Revenue Type] = 'Labor Revenue'
+	WHERE [Project Transaction Revenue Type] = 'Subconsultant Revenue (out)'
+	/* *************************************************************** */
+
+		--/*
+	--	RUN PROC TO JOIN PhaseServiceLineKey to FactProjectTransaction
+	--*/
+	EXEC dbo.USP_JOIN_PhaseServiceLineKeyToFactProjectTransaction;
+
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Completed USP_JOIN_PhaseServiceLineKeyToFactProjectTransaction', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'FactProjectTransaction Load Complete', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	--/*
+	--	JOIN FactProjectTransaction to DimWorktypes
+	--*/
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'JOIN FactProjectTransaction to DimWorktypes', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	UPDATE dbo.FactProjectTransaction
+	SET FactProjectTransaction.WorktypeKey = W.WorktypeKey
+	FROM dbo.FactProjectTransaction T
+	JOIN dbo.DimProjectPhase P
+	  ON P.ProjectPhaseKey = T.ProjectPhaseKey
+	JOIN dbo.DimWorktypes W
+	  ON P.[Project BusinessUnit] = W.[Worktype BusinessUnit]
+	 AND P.[Project ServiceLine] = W.[Worktype ServiceLine]
+	 AND P.[Project WorkType Name] = W.[Worktype Worktype Name]
+
+	/*
+		Handle FactTimeSheet
+		Truncated above
+	*/
+	/* *************************
+		TIMESHEETS
+		FactTimesheet
+	   *************************
+	*/
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Begin FactTimesheet INSERT', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	INSERT FactTimesheet
+	SELECT DD.DateKey [DateKey], 
+		DE.EmployeeKey,
+		NULL, --WorktypeKey
+		NULL, --PhaseServiceLineKey
+		PP.ProjectPhaseKey [ProjectPhaseKey],
+		DP.ProjectKey [ProjectKey],
+		DP.[Project Client Code] [Timesheet Client Code],
+		STDD.TaskCode [Task Code],
+		STDD.RegularHoursAmt [Hours],
+		STDD.ProjectDescription,
+		0 [OnLeave],
+		0 [Terminated],
+		NULL [TerminationHours]
+	FROM dbo.vStaging_Timesheets STDD
+	JOIN DimDate DD
+	  ON STDD.TransactionDate = DD.Date
+	JOIN DimEmployee DE
+	  ON STDD.[EmployeeCode] = DE.[Employee Code]
+	JOIN dbo.DimProjectPhase PP
+	  ON STDD.ProjectCode = PP.[Project Code]
+	 AND STDD.PhaseCode = PP.[Project Phase Code]
+	JOIN DimProject DP
+	  ON STDD.ProjectCode = DP.[Project Code]
+	WHERE DE.[Current] = 1
+	  AND STDD.TransactionDate >= '1-01-2013'
+	ORDER BY STDD.TransactionDate;
+
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'End FactTimesheet INSERT - Begin Xfers', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+	/* **************************
+		TIMESHEET TRANSFERS
+		FactTimesheet
+	*/
+	INSERT dbo.FactTimeSheet
+	SELECT DD.DateKey [DateKey], 
+		DE.EmployeeKey,
+		NULL, --WorktypeKey
+		NULL, --PhaseServiceLineKey
+		PP.ProjectPhaseKey [ProjectPhaseKey],
+		DP.ProjectKey [ProjectKey],
+		DP.[Project Client Code] [Timesheet Client Code],
+		TTDD.TaskCode [Task Code],
+		TTDD.HoursAmt [Hours],
+		TTDD.ProjectDescription,
+		0 [OnLeave],
+		0 [Terminated],
+		NULL [TerminationHours]
+	FROM Staging.TimesheetTransferDocumentDetail TTDD
+	JOIN DimDate DD
+	  ON TTDD.TransactionDate = DD.Date
+	JOIN DimEmployee DE
+	  ON TTDD.[EmployeeCode] = DE.[Employee Code]
+	JOIN dbo.DimProjectPhase PP
+	  ON TTDD.ProjectCode = PP.[Project Code]
+	 AND TTDD.PhaseCode = PP.[Project Phase Code]
+	JOIN DimProject DP
+	  ON TTDD.ProjectCode = DP.[Project Code]
+	WHERE DE.[Current] = 1
+	  AND TTDD.TransactionDate >= '1-01-2013'
+	ORDER BY TTDD.TransactionDate;
+
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'End FactTimesheet Xfers', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	/* **************************
+		TIMESHEET SEED ROWS
+		Add seed rows so that there is a row for 
+		each weekday for each employee
+	*/
+	INSERT dbo.FactTimeSheet
+        ( DateKey ,
+          EmployeeKey ,
+          ProjectPhaseKey ,
+          ProjectKey ,
+		  [Timesheet Client Code], 
+          TaskCode ,
+          Hours ,
+          Description,
+		  OnLeave,
+		  Terminated,
+		  TerminationHours
+        )
+	SELECT 
+		D.DateKey,
+		E.EmployeeKey,
+		P.ProjectPhaseKey,
+		dP.ProjectKey,
+		'******' ,
+		'****',
+		0,
+		'',
+		0 [OnLeave],
+		0 [Terminated],
+		NULL [TerminationHours]
+	FROM dbo.DimEmployee E, dbo.DimDate D, dbo.DimProjectPhase P, dbo.DimProject dP
+	WHERE E.[Current] = 1
+	  AND E.[Employee Status Code] = 'D'
+	  AND E.[Employee Termination Date] IS NULL
+	  AND P.[Project Code] = 'SEED'
+	  AND P.[Project Phase Code] = 'SEED'
+	  AND dP.[Project Code] = 'SEED'
+	  AND D.PeriodEndDate <= dbo.fPeriodEndDate(DATEADD(DAY, -7, GETDATE()))
+	  AND D.IsWeekday = 1
+	  AND D.Date >= DATEADD(ww, DATEDIFF(ww,0,E.[Employee Hire Date]), 0)
+	ORDER BY D.Date, E.[Employee Name];
+
+	/* ******************************
+		TIMESHEET TERMINATION ROWS
+		Add Terminiation Rows
+	*/
+	INSERT dbo.FactTimeSheet
+	        ( DateKey ,
+	          EmployeeKey ,
+	          ProjectPhaseKey ,
+	          ProjectKey ,
+			  [Timesheet Client Code],
+	          TaskCode ,
+	          Hours ,
+	          Description ,
+	          OnLeave ,
+	          Terminated ,
+	          TerminationHours
+	        )
+	SELECT T.DateKey,
+			T.EmployeeKey,
+			T.ProjectPhaseKey,
+			T.ProjectKey,
+			'******',
+			'TERM',
+			0,
+			NULL,
+			0,
+			1,
+			(T.[Employee Standard Hours Per Day]/(T.WorkDayHours*-1))*T.WorkDayHours
+	FROM dbo.vTerminations T
+	WHERE T.[Employee Termination Date] > '1-1-2015'
+	ORDER BY T.[Employee Termination Date];
+
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'FactTimeSheet Completed', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+
+	/* ***************************************************
+		Clean up Timesheets - add OnLeave column
+		for any rows created for employees while on leave
+	   *************************************************** 
+	*/
+		UPDATE dbo.FactTimeSheet
+		SET OnLeave = 0;
+
+		UPDATE dbo.FactTimeSheet
+		SET OnLeave = 1
+		FROM dbo.FactTimeSheet T
+		JOIN dbo.DimDate D
+		  ON D.DateKey = T.DateKey
+		JOIN dbo.DimEmployee E
+		  ON E.EmployeeKey = T.EmployeeKey
+		JOIN dbo.DimProject P
+		  ON P.ProjectKey = T.ProjectKey
+		WHERE P.[Project Name] LIKE '%leave%'
+		  AND P.[Project Chargeable] = 'Non-Chargeable'
+
+	/* JOIN DimPhaseServiceLines to FactTimesheet */
+	--EXEC dbo.USP_JOIN_PhaseServiceLineKeyToFactTimesheet;
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'SKIPPED USP_JOIN_PhaseServiceLineKeyToFactTimesheet', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+	
+	/* *****************************************************
+		JOIN DimWorktypes to FactTimeSheets
+	   *****************************************************
+	*/
+	--UPDATE dbo.FactTimeSheet
+	--SET WorktypeKey = W.WorktypeKey
+	--FROM dbo.FactTimeSheet T
+	--JOIN dbo.DimEmployee E
+	--  ON E.EmployeeKey = T.EmployeeKey
+	--LEFT JOIN dbo.DimWorktypes W
+	--  ON E.[Employee Business Unit] = W.[Worktype BusinessUnit]
+	-- AND E.[Service Line] = W.[Worktype ServiceLine]
+	-- AND E.[Employee Team] = W.[Worktype Worktype Name]
+
+
+	/* *************************
+		ACCOUNTS RECEIVEABLE
+		FactARTransactionSummary
+	   *************************
+	*/
+	INSERT dbo.FactARTransactionSummary
+		( ProjectPhaseKey ,
+			ProjectKey ,
+			DateKey ,
+			SummarySKey ,
+			[AR Company Code] ,
+			[AR Company Name] ,
+			[AR Organization Code] ,
+			[AR Organization Name] ,
+			[AR Account Code] ,
+			[AR Account Name] ,
+			[AR EVC Type] ,
+			[AR EVC Type Name] ,
+			--[AR ProjectCode] ,
+			--[AR Project Name] ,
+			[AR EVC Code] ,
+			[AR EVC Name] ,
+			[AR DocumentNbr] ,
+			[AR Document Date] ,
+			[AR Invoice Group Code] ,
+			[AR Invoice Group Name] ,
+			[AR Zero Balance Accounting Period] ,
+			[AR Zero Balance Fiscal Period Nbr] ,
+			[AR Zero Balance Fiscal Year] ,
+			[AR Debit Amt Account Currency] ,
+			[AR Debit Amt Company Currency] ,
+			[AR Credit Amt Account Currency] ,
+			[AR Credit Amt Company Currency] ,
+			[AR Last Order Skey] ,
+			[AR Last Accounting Period]
+		)
+	SELECT 
+		   PP.ProjectPhaseKey,
+		   P.ProjectKey,
+		   D.DateKey,
+		   SummarySkey ,
+		   CompanyCode ,
+		   CompanyName ,
+		   OrganizationCode ,
+		   OrganizationName ,
+		   AccountCode ,
+		   AccountName ,
+		   EVCType ,
+		   EVCTypeName ,
+		   --ProjectCode ,
+		   --ProjectName ,
+		   EVCCode ,
+		   EVCName ,
+		   DocumentNbr ,
+		   DocumentDate ,
+		   InvoiceGroupCode ,
+		   InvoiceGroupName ,
+		   ZeroBalanceAccountingPeriod ,
+		   ZeroBalanceFiscalPeriodNbr ,
+		   ZeroBalanceFiscalYear ,
+		   DebitAmtAccountCurrency ,
+		   DebitAmtCompanyCurrency ,
+		   CreditAmtAccountCurrency ,
+		   CreditAmtCompanyCurrency ,
+		   LastOrderSkey ,
+		   LastAccountingPeriod
+	FROM Staging.ARTransactionSummary AR
+	JOIN dbo.DimProjectPhase PP
+	  ON AR.[ProjectCode] = PP.[Project Code]
+	 AND PP.[Project Phase Code] = '****'
+	JOIN dbo.DimProject P
+	  ON AR.[ProjectCode] = P.[Project Code]
+	JOIN dbo.DimDate D
+	  ON AR.[DocumentDate] = D.Date
+	ORDER BY AR.DocumentDate
+	
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'FactARTransactionSummary', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          )  
+	--/* JDM 12-22-2015 DISCONTINUED - rolled into FactTimeSheet
+	--	FACT Chargeability
+	--*/
+	--INSERT dbo.FactChargeability
+	--SELECT 
+	--	E.EmployeeKey,
+	--	CONVERT (char(8),D.PeriodEndDate,112) [DateKey],
+	--	--E.[Employee Name],
+	--	--D.WeekOfYear,
+	--	--D.PeriodEndDate,
+	--	E.[Employee Chargeability Target],
+	--	--COUNT(DISTINCT D.DateKey) [Days of Week],
+	--	--D2.Week_BizHours,
+	--	SUM(FT.Hours) [Chargeability Week Hours],
+	--	D2.Week_BizHours [Chargeability Week Business Hours],
+	--	SUM(FT.Hours)/D2.Week_BizHours [Chargeability Week Actual]
+	--FROM dbo.FactTimeSheet FT
+	--JOIN dbo.DimEmployee E
+	--  ON E.EmployeeKey = FT.EmployeeKey
+	--JOIN dbo.DimDate D
+	--  ON D.DateKey = FT.DateKey
+	----JOIN dbo.DimDate D2
+	----  ON D2.DateKey = FT.DateKey
+	---- AND D2.IsWeekday = 1
+	---- AND D2.IsHolidayUSA = 0
+	--JOIN (
+	--		SELECT PeriodEndDate,
+	--			COUNT(DateKey) [Week_BizDays],
+	--			COUNT(DateKey) * 8 [Week_BizHours]
+	--		FROM dbo.DimDate
+	--		WHERE IsWeekday = 1		  
+	--		GROUP BY PeriodEndDate
+	--	) D2
+	--  ON D2.PeriodEndDate = D.[PeriodEndDate]
+	--JOIN dbo.DimProject P
+	--  ON P.ProjectKey = FT.ProjectKey
+	--WHERE E.[Current] = 1
+	--  AND D.FiscalYear >= '2015'
+	--  AND P.[Project Chargeable] = 'Chargeable'
+	--GROUP BY
+	--	E.EmployeeKey,
+	--	D.WeekOfYear,
+	--	D.PeriodEndDate,
+	--	E.[Employee Chargeability Target],
+	--	D2.Week_BizHours
+	--ORDER BY D.PeriodEndDate;
+
+
+
+	/* REMOVED because no longer needed 9-22-2015
+		Handle ProjectFinancials deletes (they are small)
+	*/	  
+	--TRUNCATE TABLE FactProjectFinancials;
+	
+	--INSERT FactProjectFinancials
+	--SELECT 
+	--DM.MonthKey,
+	----PT.FiscalYear, DM.FiscalYear, PT.FiscalPeriodNbr, DM.FiscalMonth,
+	----ProjectCode [Project Code],
+	--DP.ProjectKey,
+	--PT.LaborEffortAmtProjectCurrency [Project Labor Effort],
+	--PT.LaborRevenueAmtProjectCurrency [Project Labor Revenue],
+	--0 [Project Expense Revenue],
+	--PT.RevenueAdjustmentAmtProjectCurrency [Project Revenue Adjustment],
+	--PT.BillingAmtProjectCurrency [Project Billed],
+	--PT.BillingAmtPTDProjectCurrency [Project Paid to Date],
+	--(PT.LaborEffortAmtProjectCurrency + PT.RevenueAdjustmentAmtProjectCurrency) - PT.BillingAmtProjectCurrency [Project WIP]
+	--FROM Staging.ProjectTransactionSummary PT
+	--JOIN DimMonth DM
+	--  ON PT.FiscalYear = DM.FiscalYear
+	-- AND PT.FiscalPeriodNbr = DM.FiscalMonth
+	--JOIN DimProject DP
+	--  ON PT.ProjectCode = DP.[Project Code] 
+	--ORDER BY PT.FiscalYear, PT.FiscalPeriodNbr;
+
+	--INSERT dbo.TableRefreshTime
+	--        ( TblName, LastRefreshTime )
+	--VALUES  ( N'Start Build SECTION_ACCESS_PROJECT', -- TblName - nvarchar(255)
+	--          GETDATE()  -- LastRefreshTime - datetime
+	--          );
+	
+	--EXEC dbo.USP_02_K_Build_SECTION_ACCESS_PROJECT;
+
+	--INSERT dbo.TableRefreshTime
+	--        ( TblName, LastRefreshTime )
+	--VALUES  ( N'Finish Build SECTION_ACCESS_PROJECT', -- TblName - nvarchar(255)
+	--          GETDATE()  -- LastRefreshTime - datetime
+	--          );
+
+	INSERT dbo.TableRefreshTime
+	        ( TblName, LastRefreshTime )
+	VALUES  ( N'Build Dims and Facts Complete', -- TblName - nvarchar(255)
+	          GETDATE()  -- LastRefreshTime - datetime
+	          );
+END
+
