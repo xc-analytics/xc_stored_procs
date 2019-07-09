@@ -79,6 +79,16 @@ BEGIN
 	UPDATE Staging.Employee
 	SET Name = 'Jonny Clark (1963)'
 	WHERE Name = 'Jonny (Jonathan) Clark (1963)'
+	
+		--Daniel (Beau) Sweigart (1975)
+	UPDATE Staging.Employee
+	SET Name = 'Daniel Beau Clark (1975)'
+	WHERE Name = 'Daniel (Beau) Sweigart (1975)'
+
+		--Erica (Blayde) Woods (1927)
+	UPDATE Staging.Employee
+	SET Name = 'Erica Blayde Woods (1927)'
+	WHERE Name = 'Erica (Blayde) Woods (1927)'
 	/* ******************************************************************** */
 
 	INSERT dbo.DimEmployee
