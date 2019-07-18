@@ -1,0 +1,622 @@
+USE [Xcenda_DW]
+GO
+/****** Object:  StoredProcedure [dbo].[USP_02_D_Build_Dims_ProjectPhase]    Script Date: 7/18/2019 1:38:22 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROC [dbo].[USP_02_D_Build_Dims_ProjectPhase]
+AS
+	/*
+		Project and ProjectPhase dimensions together in one Hierarchy Dimension
+	*/
+
+	DELETE FROM dbo.DimProjectPhase;
+
+	INSERT dbo.DimProjectPhase
+	SELECT
+		SP.Code [ProjectCode],
+		CASE 
+			WHEN SP.ChargeableName = 'Yes' THEN 'Chargeable'
+			ELSE 'Non-Chargeable'
+		END [Chargeable],
+		NULL [Project Time Category],
+		SP.Name [Project Name],
+		SP.ClientCode,
+		SP.ClientName [Client Name],
+		SP.ResponsibleCompanyCode [Company Code],
+		SP.ResponsibleCompanyName [Company Name],
+		NULL, -- Consolidated Client Code
+		NULL, -- Consolidated Client Name
+		SP.ServiceBusinessUnitCode [BusinessUnit Code],
+		SP.ServiceBusinessUnitName [BusinessUnit],
+		SP.ServiceLineCode [ServiceLine Code],
+		SP.ServiceLineName [ServiceLine],
+		SP.TypeCode [WorkType Code],
+		SP.TypeName [WorkType Name],
+		WT.[Project Worktype Display] [Project Worktype Display],
+		SP.ContractName [Funding Brand],
+		SP.CurrencyCode [Project Currency Code],
+		dbo.fCurrencyGetRateToUS(SP.CurrencyCode) [Project Conversion Rate To Dollars],
+		dbo.fCurrencyConvertToUS(SP.CurrencyCode, SP.TotalFeeAmtProjectCurrency) [Fee Budget],
+		CASE 
+			WHEN SP.OverallProjectFeeAmtProjectCurrency > 0 THEN dbo.fCurrencyConvertToUS(SP.CurrencyCode, SP.OverallProjectFeeAmtProjectCurrency) - dbo.fCurrencyConvertToUS(SP.CurrencyCode, SP.TotalFeeAmtProjectCurrency)
+			ELSE 0
+		END [Expense Budget],
+		--SP.TotalFeeAmtProjectCurrency [Project Original Currency Fee Budget], Switch between Total and Baseline still being investigated.
+		SP.TotalFeeAmtProjectCurrency [Project Original Currency Fee Budget],
+		CASE 
+			WHEN SP.OverallProjectFeeAmtProjectCurrency > 0 THEN SP.OverallProjectFeeAmtProjectCurrency - SP.TotalFeeAmtProjectCurrency
+			ELSE 0
+		END [Project Original Currency Expense Budget],
+		SP.StartDate [Contract Start],
+		SP.FinishDate [Contract End],
+		SP.[Status] [Project Status Code],
+		SP.StatusName [Project Status],
+		NULL [Project Manager],
+		NULL [Client Manager],
+		NULL [ServiceLine Lead],
+		NULL [Billing Schedule],
+		SP.ResponsibleOrganizationCode [Organization Code],
+		NULL [Publish Date],
+		NULL [Team Lead],
+		NULL [Oncology Project],
+		NULL [Global Project],
+		NULL [Cell and Gene Therapy Project],
+		NULL [Project PRO],
+		NULL [Quality Project],
+		NULL [Value Framework Project],
+		NULL [Orphan Project],
+		NULL [HCP Interaction],
+		NULL [Regulated],
+		NULL [Budget Code],
+		NULL [Product Type],
+		NULL [Project Type],
+		NULL [Upload Date],
+		NULL,
+		NULL,
+		NULL,
+		NULL,
+		NULL,
+		NULL,
+		NULL,
+		NULL,
+		NULL,
+		NULL,
+		SPP.Code [Project Phase Code],
+		SPP.Name [Project Phase Name],
+		SPP.ResponsibleCompanyCode [Project Phase Company Code],
+		REPLACE(REPLACE(SPP.ResponsibleCompanyName, CHAR(10), ''), CHAR(13), '') [Project Phase Company Name],
+		SPP.ResponsibleOrganizationCode [Project Phase Org Code],
+		SPP.ResponsibleOrganizationName [Project Phase Org Name],
+		SPP.ServiceBusinessUnitCode [Project Phase Business Unit Code],
+		SPP.ServiceBusinessUnitName [Project Phase Business Unit Name],
+		dbo.fStripByLastUnderscore(SPP.ServiceBusinessUnitName) [Project Phase Business Unit Name Display],
+		SPP.ServiceLineCode [Project Phase Service Line Code],
+		SPP.ServiceLineName [Project Phase Service Line Name],
+		dbo.fStripByLastUnderscore(SPP.ServiceLineName) [Project Phase Service Line Name Display],
+		SPP.TypeCode [Project Phase Worktype Code],
+		SPP.TypeName [Project Phase Worktype Name],
+		dbo.fStripByLastUnderscore(SPP.TypeName) [Project Phase Worktype Name Display],
+		SPP.MarketSegmentCode [Project Phase Market Segment Code],
+		SPP.MarketSegmentName [Project Phase Market Segment Name],
+		SPP.StartDate [Project Phase StartDate],
+		SPP.FinishDate [Project Phase FinishDate],
+		SPP.LastModificationDate [Project Phase LastModificationDate],
+		dbo.fCurrencyConvertToUS(SP.CurrencyCode, SPP.TotalFeeAmtProjectCurrency) [Project Phase Budget],
+		SPP.TotalFeeAmtProjectCurrency [Project Phase Original Currency Budget]
+	FROM Staging.Project SP
+	JOIN Support.ProjectWorktypeDisplayLookup WT
+	  ON SP.TypeName = WT.[Project WorkType Name]
+	LEFT JOIN Staging.ProjectPhase SPP
+	  ON SPP.ParentProjectCode = SP.Code;	
+
+	/*
+		UPDATE DimProjectPhase with Consolidated Client Code
+	*/
+	UPDATE dbo.DimProjectPhase
+	SET [Project Consolidated Client Code] = C.ConsolidatedClientCode,
+		[Project Consolidated Client Name] = C.ConsolidatedClientName
+	FROM dbo.DimProjectPhase P
+	JOIN Staging.Client C
+	  ON C.Code = P.[Project Client Code]
+
+	/*
+		UPDATE BU and SL where old AHO. Applied Health Outcomes
+	*/
+	UPDATE dbo.DimProjectPhase
+	SET [Project BusinessUnit Code] = 'ACC', [Project BusinessUnit] = 'Accrued Revenue',
+		[Project ServiceLine Code] = 'GL', [Project ServiceLine] = 'GL posting'
+	WHERE [Project BusinessUnit Code] = 'AHO'
+
+	/*
+		UPDATE SL to WT Mismatch
+	*/
+	UPDATE dbo.DimProjectPhase
+	SET [Project ServiceLine Code] = 'MC', [Project ServiceLine] = 'MC_SC_Medical Communications'
+	FROM dbo.DimProjectPhase P
+	WHERE P.[Project ServiceLine] = 'GHO_SC_Global Health Economics' and P.[Project WorkType Name] = 'Rebate_Rebate_MC_SC'
+
+	/*
+		Update Project Manager from BST ProjectResponsibility
+	*/
+	UPDATE dbo.DimProjectPhase
+	SET [Project Manager] = E.[Employee Name]
+	FROM DimProjectPhase DP
+	JOIN Staging.ProjectResponsibility PR
+	  ON DP.[Project Code] = PR.ParentProjectCode
+	JOIN dbo.DimEmployee E
+	  ON PR.EmployeeCode = E.[Employee Code]
+	 AND E.[Current] = 1
+	WHERE PR.TypeCode = 'PM'; 
+
+	/*
+		Update Project Client Manager from BST ProjectResponsibility
+	*/
+	UPDATE dbo.DimProjectPhase
+	SET [Project Client Manager] = E.[Employee Name]
+	FROM DimProjectPhase DP
+	JOIN Staging.ProjectResponsibility PR
+	  ON DP.[Project Code] = PR.ParentProjectCode
+	JOIN dbo.DimEmployee E
+	  ON PR.EmployeeCode = E.[Employee Code]
+	 AND E.[Current] = 1
+	WHERE PR.TypeCode = 'CM';
+
+	/*
+		Update Project Publish Date from RADAR Active_Engagements
+	*/
+	UPDATE dbo.DimProjectPhase
+	SET [Project Publish Date] = AE.Publish_date,
+		[Project Upload Date] = AE.Uploaded_Date
+	FROM DimProjectPhase DP
+	JOIN Staging.Active_Engagements AE
+	  ON DP.[Project Code] = AE.Proj_code
+	WHERE AE.Publish_date IS NOT NULL
+	  AND AE.Publish_date > '01-01-2000'
+
+	UPDATE dbo.DimProjectPhase
+	SET [Project Publish Date] = P.[Project Contract Start]
+	FROM dbo.DimProjectPhase P
+	WHERE [Project Publish Date] IS NULL
+
+	UPDATE dbo.DimProjectPhase
+	SET [Project Upload Date] = P.[Project Publish Date]
+	FROM dbo.DimProjectPhase P
+	WHERE [Project Upload Date] IS NULL
+
+	UPDATE dbo.DimProjectPhase
+	SET [Project Publish Date] = [Project Upload Date]
+	FROM dbo.DimProjectPhase P
+	WHERE DATEDIFF(DAY, P.[Project Publish Date], P.[Project Upload Date]) > 29
+	   OR DATEDIFF(DAY, P.[Project Publish Date], P.[Project Upload Date]) < -29
+	
+
+	/*
+		Update Therapeutic Area 1 from Radar Active_Engagements
+	*/
+	UPDATE dbo.DimProjectPhase
+	SET [Project PrimaryTherapeuticArea1] = REPLACE(AE.PrimaryTxArea1, '_', ' ')
+	FROM DimProjectPhase DP
+	JOIN Staging.Active_Engagements AE
+	  ON DP.[Project Code] = AE.Proj_code
+	WHERE AE.PrimaryTxArea1 IS NOT NULL
+	  AND DP.[Project PrimaryTherapeuticArea1] IS NULL;
+
+	--SELECT AE.Area1_SecondaryTx1, DP.*
+	UPDATE dbo.DimProjectPhase
+	SET [Project PTA1_SecondaryTherapeuticArea1] = REPLACE(AE.Area1_SecondaryTx1, '_', ' ')
+	FROM DimProjectPhase DP
+	JOIN Staging.Active_Engagements AE
+	  ON DP.[Project Code] = AE.Proj_code
+	WHERE AE.Area1_SecondaryTx1 IS NOT NULL AND AE.Area1_SecondaryTx1 != ''
+	  AND DP.[Project PTA1_SecondaryTherapeuticArea1] IS NULL;
+
+	/*
+		Update Therapeutic Area 1 
+		Set NULL GmbH Company 2 Projects to 'Xcenda GmbH' where NULL
+		Set Other Null or Empty to 'Missing
+	*/
+		UPDATE dbo.DimProjectPhase
+		SET [Project PrimaryTherapeuticArea1] = 'Xcenda GmbH Unclassified'
+		WHERE [Project Company Code] = 02
+		  AND [Project PrimaryTherapeuticArea1] IS NULL;
+
+		UPDATE dbo.DimProjectPhase
+		SET [Project PrimaryTherapeuticArea1] = 'Missing'
+		WHERE [Project PrimaryTherapeuticArea1] IS NULL;
+
+		UPDATE dbo.DimProjectPhase
+		SET [Project PrimaryTherapeuticArea1] = 'Missing'
+		WHERE [Project PrimaryTherapeuticArea1] = '';
+
+	/*
+		UPDATE DimProjectPhase Tx Areas where they are obvious mistakes
+	*/
+		--UPDATE dbo.DimProjectPhase
+		--SET [Project PrimaryTherapeuticArea1] = 'Musculoskeletal_Disorders'
+		--WHERE [Project PrimaryTherapeuticArea1] = 'Musculoskeletal Disorders';
+
+		UPDATE dbo.DimProjectPhase
+		SET [Project PrimaryTherapeuticArea1] = 'Missing'
+		WHERE [Project PrimaryTherapeuticArea1] = '[object Object]';
+
+		--UPDATE dbo.DimProjectPhase
+		--SET [Project PrimaryTherapeuticArea1] = 'Psychiatric_Disorders'
+		--WHERE [Project PrimaryTherapeuticArea1] = 'Psychiatric Disorders';
+
+		--UPDATE dbo.DimProjectPhase
+		--SET [Project PrimaryTherapeuticArea1] = 'Not_Applicable'
+		--WHERE [Project PrimaryTherapeuticArea1] = 'Not Applicable';
+
+		UPDATE dbo.DimProjectPhase
+		SET [Project PrimaryTherapeuticArea1] = 'Excluded'
+		WHERE [Project PrimaryTherapeuticArea1] = 'X'
+
+	/*
+		UPDATE DimProjectPhase [Project PTA1_SecondaryTherapeuticArea1]
+	*/
+		UPDATE dbo.DimProjectPhase
+		SET [Project PTA1_SecondaryTherapeuticArea1] = 'Missing'
+		WHERE [Project PTA1_SecondaryTherapeuticArea1] IS NULL
+
+		UPDATE dbo.DimProjectPhase
+		SET [Project PTA1_SecondaryTherapeuticArea1] = 'Missing'
+		WHERE [Project PTA1_SecondaryTherapeuticArea1] = '[object Object]'
+
+	/*
+		UPDATE DimProjectPhase Service Lines to account for the old ones
+		JDM - 09-22-2015
+	*/
+		UPDATE dbo.DimProjectPhase
+		SET [Project ServiceLine] = 'MAC_CC_MarketAccessCnstlg&Commun'
+		WHERE [Project ServiceLine] = 'PAS_CC_Payer Agency Services';
+
+		UPDATE dbo.DimProjectPhase
+		SET [Project ServiceLine] = 'MAC_CC_MarketAccessCnstlg&Commun'
+		WHERE [Project ServiceLine] = 'MACC_SC_MarketAccessConsulting&Comm';
+
+		UPDATE dbo.DimProjectPhase
+		SET [Project ServiceLine] = 'RWE_SC_RealWorldEvidence'
+		WHERE [Project ServiceLine] = 'ADA_SC_Applied Data Analytics';
+
+	/*
+		Update ONCOLOGY PROJECT from Radar Active_Engagements
+		The Below way of using CITY on the Projects view is the preferred way
+		JDM - 05-18-2015
+	*/
+	
+	/*
+		Update PROJECT ONCOLOGY from CITY column in ProdDB.Project
+	*/
+	--SELECT P.City, *	
+	UPDATE dbo.DimProjectPhase
+	SET [Project Oncology] = 'Oncology'
+	FROM DimProjectPhase DP
+	JOIN Staging.Project P
+	  ON DP.[Project Code] = P.Code
+	WHERE UPPER(P.City) = 'ONCOLOGY';
+
+	UPDATE dbo.DimProjectPhase
+	SET [Project Oncology] = 'Non-Oncology'
+	FROM DimProjectPhase DP
+	WHERE DP.[Project Oncology] != 'Oncology';
+
+	-- Catch any nulls
+	UPDATE dbo.DimProjectPhase
+	SET [Project Oncology] = 'Non-Oncology'
+	FROM DimProjectPhase DP
+	WHERE [Project Oncology] IS NULL;
+
+
+	/*
+		Update GLOBAL PROJECT from Radar Active_Engagements
+	*/
+	UPDATE dbo.DimProjectPhase
+	SET [Project Global] = 'Global'
+	FROM DimProjectPhase DP
+	JOIN Staging.Project SP
+	  ON DP.[Project Code] = SP.Code
+	WHERE (ResponsibleOrganizationCode = 'GLOBAL'
+	   OR ResponsibleOrganizationCode = '0200')
+
+	UPDATE dbo.DimProjectPhase
+	SET [Project Global] = 'Not Global'
+	FROM dbo.DimProjectPhase DP
+	WHERE DP.[Project Global] IS NULL;
+
+	/*Update PENDING Project Hours as Chargeable*/
+	UPDATE dbo.DimProjectPhase
+	SET [Project Chargeable] = 'Chargeable'
+	WHERE [Project Code] LIKE '%Pending%'
+
+	/*Categorize Projects*/
+	UPDATE dbo.DimProjectPhase
+	SET [Project Time Category] = 'Chargeable'
+	WHERE [Project Chargeable] = 'Chargeable';
+
+	UPDATE dbo.DimProjectPhase
+	SET [Project Time Category] = 'Sales & Marketing'
+	WHERE [Project Code] = 'XSALESMKTG' OR [Project Code] = 'XESALESMKT'
+	   OR [Project Code] = 'XUKSALESMK' OR [Project Code] = 'XCHSALESMK';
+
+	UPDATE dbo.DimProjectPhase
+	SET [Project Time Category] = 'Task Force'
+	WHERE [Project Code] LIKE 'XTASKFORCE%' OR [Project Code] LIKE 'XEXPTF%' OR [Project Code] LIKE 'XETASKFORC%'
+	   OR [Project Code] LIKE 'XUKTASKFOR%' OR [Project Code] LIKE 'XCHTASKFOR%' OR [Project Code] = 'XON'
+	   OR [Project Code] = 'XEII';
+
+	UPDATE dbo.DimProjectPhase
+	SET [Project Time Category] = 'Internal'
+	WHERE [Project Code] LIKE 'XINTERNAL%' OR [Project Code] LIKE 'XEINTERNAL%'
+	   OR [Project Code] LIKE 'XUKINTERNA%' OR [Project Code] LIKE 'XCHINTERNA%';
+
+	UPDATE dbo.DimProjectPhase
+	SET [Project Time Category] = 'Training'
+	WHERE [Project Code] LIKE 'XTRAINING%' OR [Project Code] LIKE 'XETRAINING%';
+
+	UPDATE dbo.DimProjectPhase
+	SET [Project Time Category] = 'PTO'
+	WHERE [Project Code] LIKE 'ZPTO%'; 
+
+	UPDATE dbo.DimProjectPhase
+	SET [Project Time Category] = 'Sick'
+	WHERE [Project Code] LIKE 'ZSICK%' OR [Project Code] LIKE 'XESICKTIME%';
+
+	UPDATE dbo.DimProjectPhase
+	SET [Project Time Category] = 'Holiday'
+	WHERE [Project Code] LIKE 'XHOLIDAY%' OR [Project Code] LIKE 'XEHOLIDAY%'
+	   OR [Project Code] LIKE 'XUKHOLIDAY%' OR [Project Code] LIKE 'XCHHOLIDAY%';
+
+	UPDATE dbo.DimProjectPhase
+	SET [Project Time Category] = 'Leave'
+	WHERE [Project Name] LIKE '%Leave%'
+	  AND [Project Chargeable] = 'Non-Chargeable';
+
+	UPDATE dbo.DimProjectPhase
+	SET [Project Time Category] = 'Volunteer'
+	WHERE [Project Code] LIKE 'XVTO%' OR [Project Code] LIKE 'XEVTO%'
+	   OR [Project Code] LIKE 'XCHVTO%' OR [Project Code] LIKE 'XUKVTO%' OR [Project Code] LIKE 'XEVTO%'
+
+	/*
+		Fix CM/PM Names
+	*/
+	UPDATE dbo.DimProjectPhase
+	SET [Project Manager] = 'Michael Eaddy'
+	WHERE [Project Manager] LIKE '%mike eaddy%';
+
+	UPDATE dbo.DimProjectPhase
+	SET [Project Client Manager] = 'Michael Eaddy'
+	WHERE [Project Client Manager] LIKE '%mike eaddy%';
+	/*
+		Add Project Phase Code Seed Row
+		XINTERNAL/SEED
+	*/
+	INSERT dbo.DimProjectPhase
+	SELECT 'SEED' ,
+           P.[Project Chargeable] ,
+           'Internal', --P.[Project Time Category] ,
+           'SEED', --P.[Project Name] ,
+           P.[Project Client Code] ,
+           P.[Project Client Name] ,
+           P.[Project Company Code] ,
+           P.[Project Company Name] ,
+		   NULL, -- Consolidated Client Code
+		   NULL, -- Consolidated Client Name
+		   P.[Project BusinessUnit Code],
+           P.[Project BusinessUnit] ,
+		   P.[Project ServiceLine Code],
+           P.[Project ServiceLine] ,
+           P.[Project WorkType Code] ,
+           P.[Project WorkType Name] ,
+		   P.[Project WorkType Display],
+           P.[Project Funding Brand] ,
+		   P.[Project Currency Code],
+		   P.[Project Conversion Rate To Dollars],
+           P.[Project Fee Budget] ,
+           P.[Project Expense Budget] ,
+		   P.[Project Original Currency Fee Budget],
+		   P.[Project Original Currency Expense Budget],
+           P.[Project Contract Start] ,
+           P.[Project Contract End] ,
+           P.[Project Status Code] ,
+           P.[Project Status] ,
+           P.[Project Manager] ,
+           P.[Project Client Manager] ,
+           P.[Project ServiceLine Lead] ,
+           P.[Project Billing Schedule] ,
+           P.[Project Organization Code] ,
+           P.[Project Publish Date] ,
+           P.[Project Team Lead] ,
+           P.[Project Oncology] ,
+           P.[Project Global] ,
+		NULL [Cell and Gene Therapy Project],
+		NULL [Project PRO],
+		NULL [Quality Project],
+		NULL [Value Framework Project],
+		NULL [Orphan Project],
+           P.[Project HCP Interaction] ,
+           P.[Project Regulated] ,
+           P.[Project Budget Code] ,
+           P.[Project Product Type] ,
+           P.[Project Type] ,
+           P.[Project Upload Date] ,
+           P.[Project PrimaryTherapeuticArea1] ,
+           P.[Project PTA1_SecondaryTherapeuticArea1] ,
+           P.[Project PTA1_SecondaryTherapeuticArea2] ,
+           P.[Project PTA1_SecondaryTherapeuticArea3] ,
+           P.[Project PTA1_SecondaryTherapeuticArea4] ,
+           P.[Project PTA1_SecondaryTherapeuticArea5] ,
+           P.[Project PrimaryTherapeuticArea2] ,
+           P.[Project PTA2_SecondaryTherapeuticArea1] ,
+           P.[Project PrimaryTherapeuticArea3] ,
+           P.[Project PTA3_SecondaryTherapeuticArea1] ,
+           'SEED' ,
+           P.[Project Phase Name] ,
+		   P.[Project Phase Company Code],
+		   P.[Project Phase Company Name],
+		   P.[Project Phase Organization Code],
+		   P.[Project Phase Organization Name],
+		   P.[project phase Business Unit Code],
+		   P.[project phase Business Unit Name],
+		   P.[project phase Business Unit Name Display],
+		   P.[Project Phase Service Line Code],
+		   P.[Project Phase Service Line Name],
+		   P.[Project Phase Service Line Name Display],
+           P.[Project Phase Worktype Code] ,
+           P.[Project Phase Worktype Name] ,
+		   P.[Project Phase Worktype Name Display] ,
+		   P.[Project Phase Market Segment Code],
+		   P.[Project Phase Market Segment Name],
+           P.[Project Phase StartDate] ,
+           P.[Project Phase FinishDate] ,
+           P.[Project Phase LastModificationDate] ,
+           P.[Project Phase Budget],
+		   P.[Project Phase Original Currency Budget]
+		FROM dbo.DimProjectPhase P
+		WHERE [Project Chargeable]!= 'Chargeable'
+		  AND [Project Code] = 'XINTERNAL'
+		  AND [Project Phase Code] = '****'
+		ORDER BY [Project Code];
+
+	/*
+		Add Project Phase Code Row for TERMINATED
+		TERMINATED
+	*/
+	INSERT dbo.DimProjectPhase
+	SELECT 'TERMINATED', --P.[Project Code],
+           P.[Project Chargeable] ,
+           'Internal', --P.[Project Time Category] ,
+           'TERMINATED', --P.[Project Name] ,
+           P.[Project Client Code] ,
+           P.[Project Client Name] ,
+           P.[Project Company Code] ,
+           P.[Project Company Name] ,
+		   NULL, -- Consolidated Client Code
+		   NULL, -- Consolidated Client Name
+		   P.[Project BusinessUnit Code],
+           P.[Project BusinessUnit] ,
+		   P.[Project ServiceLine Code],
+           P.[Project ServiceLine] ,
+           P.[Project WorkType Code] ,
+           P.[Project WorkType Name] ,
+		   P.[Project WorkType Display],
+           P.[Project Funding Brand] ,
+		   P.[Project Currency Code],
+		   P.[Project Conversion Rate To Dollars],
+           P.[Project Fee Budget] ,
+           P.[Project Expense Budget] ,
+		   P.[Project Original Currency Fee Budget],
+		   P.[Project Original Currency Expense Budget],
+           P.[Project Contract Start] ,
+           P.[Project Contract End] ,
+           P.[Project Status Code] ,
+           P.[Project Status] ,
+           P.[Project Manager] ,
+           P.[Project Client Manager] ,
+           P.[Project ServiceLine Lead] ,
+           P.[Project Billing Schedule] ,
+           P.[Project Organization Code] ,
+           P.[Project Publish Date] ,
+           P.[Project Team Lead] ,
+           P.[Project Oncology] ,
+           P.[Project Global] ,
+		NULL [Cell and Gene Therapy Project],
+		NULL [Project PRO],
+		NULL [Quality Project],
+		NULL [Value Framework Project],
+		NULL [Orphan Project],
+           P.[Project HCP Interaction] ,
+           P.[Project Regulated] ,
+           P.[Project Budget Code] ,
+           P.[Project Product Type] ,
+           P.[Project Type] ,
+           P.[Project Upload Date] ,
+           P.[Project PrimaryTherapeuticArea1] ,
+           P.[Project PTA1_SecondaryTherapeuticArea1] ,
+           P.[Project PTA1_SecondaryTherapeuticArea2] ,
+           P.[Project PTA1_SecondaryTherapeuticArea3] ,
+           P.[Project PTA1_SecondaryTherapeuticArea4] ,
+           P.[Project PTA1_SecondaryTherapeuticArea5] ,
+           P.[Project PrimaryTherapeuticArea2] ,
+           P.[Project PTA2_SecondaryTherapeuticArea1] ,
+           P.[Project PrimaryTherapeuticArea3] ,
+           P.[Project PTA3_SecondaryTherapeuticArea1] ,
+           'TERM' , --P.[Porject Phase Code],
+           'TERMINATED', --P.[Project Phase Name] ,
+		   P.[Project Phase Company Code],
+		   P.[Project Phase Company Name],
+		   P.[Project Phase Organization Code],
+		   P.[Project Phase Organization Name],
+		   P.[Project Phase Business Unit Code],
+		   P.[Project Phase Business Unit Name],
+		   P.[Project Phase Business Unit Name Display],
+		   P.[Project Phase Service Line Code],
+		   P.[Project Phase Service Line Name],
+		   P.[Project Phase Service Line Name Display],
+           NULL, --P.[Project Phase Worktype Code] ,
+           NULL, --P.[Project Phase Worktype Name] ,
+		   NULL, --P.[Project Phase Worktype Name Display],
+		   NULL,--P.[Project Phase Market Segment Code],
+		   NULL,--P.[Project Phase Market Segment Name],
+           GETDATE(), --P.[Project Phase StartDate] ,
+           GETDATE(), --P.[Project Phase FinishDate] ,
+           GETDATE(), --P.[Project Phase LastModificationDate] ,
+           P.[Project Phase Budget],
+		   P.[Project Phase Original Currency Budget]
+		FROM dbo.DimProjectPhase P
+		WHERE [Project Chargeable]!= 'Chargeable'
+		  AND [Project Code] = 'XINTERNAL'
+		  AND [Project Phase Code] = '****'
+		ORDER BY [Project Code];
+
+		/*
+			UPDATE Global Project
+		*/
+		INSERT dbo.TableRefreshTime
+        ( TblName, LastRefreshTime )
+		VALUES  ( N'ProjectDemographicData - Update Global Projects', -- TblName - nvarchar(255)
+            GETDATE()  -- LastRefreshTime - datetime
+            );
+		/* ***************************************************** */
+		UPDATE dbo.DimProjectPhase
+		SET [Project Global] = GlobalDemo.[Global Demo]
+		FROM  dbo.DimProjectPhase P
+		join (
+			SELECT DISTINCT 
+				P.[Project Code],
+				   CASE
+					WHEN GlobalDemo.ParentProjectCode IS NOT NULL THEN 'Global Project'
+					WHEN P.[Project Global] = 'Global' THEN 'Global Project'
+					ELSE 'Not Global Project'
+				   END [Global Demo] 
+			FROM dbo.DimProjectPhase P
+			LEFT JOIN (
+					SELECT ParentProjectCode
+					FROM Staging.ProjectDemographicData
+					WHERE DemographicName LIKE '%global%'
+				) GlobalDemo
+			  ON GlobalDemo.ParentProjectCode = P.[Project Code]
+			) GlobalDemo
+		  ON GlobalDemo.[Project Code] = P.[Project Code];
+		/* ***************************************************** */
+
+
+
+
+
+		/* ***************************************************** */
+		/* JDM -  12/06/2018                                     */
+		/* USP_02_D_Build_Dims_ProjectPhase Line 587             */
+		/* UPDATE - Fix SMA Service Line and Phase Service Line  */
+		/*          Where Worktype has SMA in it                 */
+		/* ***************************************************** */
+		UPDATE dbo.DimProjectPhase
+		SET [Project ServiceLine Code] = 'SMA',
+			[Project ServiceLine] = 'SMA_CC_StrategicMarketAccess&Intel',
+			[Project Phase Service Line Code] = 'SMA',
+			[Project Phase Service Line Name] = 'SMA_CC_StrategicMarketAccess&Intel',
+			[Project Phase Service Line Name Display] = 'StrategicMarketAccess&Intel'
+		WHERE [Project WorkType Name] LIKE '%SMA%'
+		  AND [Project ServiceLine Code] <> 'SMA';
+		/* ***************************************************** */
