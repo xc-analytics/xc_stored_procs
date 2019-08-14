@@ -1385,11 +1385,13 @@ LEFT JOIN dbo.DimDate D
 	  AND R.StartedMonthsAgo > 0
 
 	UPDATE dbo.FactBacklog
-	SET [Backlog Comments] = R.Backlog_Comments,
+	SET [Backlog Comments] = BC.Comments,
 		[Backlog WIP Comments] = R.WIP_Comments
 	FROM dbo.FactBacklog B
 	JOIN Staging.RADAR_vRPT_ProactiveWriteOffReport R
 	  ON B.Proj_code = R.Proj_code
+	JOIN Staging.RADAR_Backlog_Comments BC
+	  ON  B.Proj_code = BC.Proj_code
 
 END
 
