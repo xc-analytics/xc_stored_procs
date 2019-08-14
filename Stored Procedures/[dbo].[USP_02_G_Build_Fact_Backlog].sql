@@ -1,6 +1,6 @@
 USE [Xcenda_DW]
 GO
-/****** Object:  StoredProcedure [dbo].[USP_02_G_Build_Fact_Backlog]    Script Date: 8/14/2019 11:10:25 AM ******/
+/****** Object:  StoredProcedure [dbo].[USP_02_G_Build_Fact_Backlog]    Script Date: 8/14/2019 11:57:55 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -1388,7 +1388,7 @@ LEFT JOIN dbo.DimDate D
 	SET [Backlog Comments] = BC.Comments,
 		[Backlog WIP Comments] = R.WIP_Comments
 	FROM dbo.FactBacklog B
-	JOIN Staging.RADAR_vRPT_ProactiveWriteOffReport R
+	LEFT JOIN Staging.RADAR_vRPT_ProactiveWriteOffReport R
 	  ON B.Proj_code = R.Proj_code
 	JOIN Staging.RADAR_Backlog_Comments BC
 	  ON  B.Proj_code = BC.Proj_code
