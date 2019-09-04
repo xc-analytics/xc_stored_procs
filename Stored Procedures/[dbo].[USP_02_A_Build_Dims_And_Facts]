@@ -1,6 +1,6 @@
 USE [Xcenda_DW]
 GO
-/****** Object:  StoredProcedure [dbo].[USP_02_A_Build_Dims_And_Facts]    Script Date: 7/9/2019 4:33:11 PM ******/
+/****** Object:  StoredProcedure [dbo].[USP_02_A_Build_Dims_And_Facts]    Script Date: 9/4/2019 11:08:04 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -392,6 +392,10 @@ BEGIN
 	[Employee Team Display] = 'Not Specified'
    WHERE [Current] = 1
      AND [Service Line] = '';
+
+/*
+EXEC [dbo].[USP_02_A_Build_Dims_Employee];
+*/
 
    TRUNCATE TABLE dbo.TableRefreshTime;
    INSERT dbo.TableRefreshTime
@@ -958,9 +962,10 @@ BEGIN
 	JOIN dbo.DimProjectPhase P
 	  ON P.ProjectPhaseKey = T.ProjectPhaseKey
 	JOIN dbo.DimWorktypes W
-	  ON P.[Project BusinessUnit] = W.[Worktype BusinessUnit]
-	 AND P.[Project ServiceLine] = W.[Worktype ServiceLine]
-	 AND P.[Project WorkType Name] = W.[Worktype Worktype Name]
+	  ON P.[Project Phase Company Code] = W.[Worktype Company Code]
+	 AND P.[Project Phase Business Unit Code] = W.[Worktype BusinessUnit Code]
+	 AND P.[Project Phase Service Line Code] = W.[Worktype ServiceLine Code]
+	 AND P.[Project Phase Worktype Code] = W.[Worktype Worktype Code]
 
 	/*
 		Handle FactTimeSheet
